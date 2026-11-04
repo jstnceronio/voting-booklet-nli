@@ -1,0 +1,14 @@
+[project]
+name = "voting-nli"
+version = "0.1.0"
+description = "Multilingual voting booklet fact-checking and verified dialogue generation."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+voting-nli = "voting_nli.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
