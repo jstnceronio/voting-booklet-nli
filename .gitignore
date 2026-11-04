@@ -8,10 +8,5 @@ build/
 .env.*
 !.env.example
 .DS_Store
-
-data/booklets/*
-!data/booklets/.gitkeep
-data/benchmarks/*
-!data/benchmarks/.gitkeep
 runs/*
 !runs/.gitkeep
