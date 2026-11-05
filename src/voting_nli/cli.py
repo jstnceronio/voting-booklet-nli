@@ -1,12 +1,50 @@
-import argparse
+import argparse as ap
 import json
-import random
 from importlib.metadata import version
 from pathlib import Path
 
+from voting_nli.model import Model
+from voting_nli.nli import Classifier
+
+
+def parse_cases(args, parser: ap.ArgumentParser) -> list[dict]:
+    cases = []
+    with args.input.open(encoding="utf-8") as inputs:
+        for line_number, line in enumerate(inputs, start=1):
+            case = json.loads(line)
+            if "reference" not in case:
+                parser.error(
+                    f"Input line {line_number} (id={case.get('id')!r}) has no 'reference'. "
+                    "Booklet inputs are not supported yet; use reference-NLI input."
+                )
+            cases.append(case)
+    return cases
+
+
+def start_classification(args, cases: list[dict]):
+    model = Model()
+    nli = Classifier(model)
+    labels = ["entailment", "neutral", "contradiction"]
+
+    with args.output.open("w", encoding="utf-8") as outputs:
+        for case in cases:
+            label = nli.classify(case["reference"]["text"], case["claim"]["text"])
+
+            prediction = {
+                "id": case["id"],
+                "label": label,
+                "label_name": labels[label],
+                "evidence": [],
+                "metrics": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "inference_time_ms": 0,
+                },
+            }
+            outputs.write(json.dumps(prediction, ensure_ascii=False) + "\n")
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
+    parser = ap.ArgumentParser(
         description="Multilingual voting booklet NLI and verified dialogue generation."
     )
     parser.add_argument("--version", action="version", version=version("voting-nli"))
@@ -17,32 +55,9 @@ def main() -> None:
     if args.input.resolve() == args.output.resolve():
         parser.error("Input and output must be different files.")
 
-    labels = ["entailment", "neutral", "contradiction"]
-
-    with args.input.open(encoding="utf-8") as inputs:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-
-        with args.output.open("w", encoding="utf-8") as outputs:
-            for line in inputs:
-                case = json.loads(line)
-                label = random.randrange(3)
-
-                # Replace me.
-                prediction = {
-                    "id": case["id"],
-                    "label": label,
-                    "label_name": labels[label],
-                    "evidence": [],
-                    "metrics": {
-                        "input_tokens": 0,
-                        "output_tokens": 0,
-                        "inference_time_ms": 0,
-                    },
-                }
-                outputs.write(json.dumps(prediction, ensure_ascii=False) + "\n")
-
-    parser.parse_args()
-    parser.print_help()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    cases = parse_cases(args, parser)
+    start_classification(args, cases)
 
 
 if __name__ == "__main__":

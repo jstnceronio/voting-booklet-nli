@@ -23,6 +23,14 @@ uv rebuilds the installed package when the source changes.
 When adding Apertus access, copy `.env.example` to `.env` and set your
 `CSCS_API_KEY`. Environment-file loading will be added with the model client.
 
+## Reference NLI
+
+Run a reference-only example with:
+
+```sh
+uv run --no-editable voting-nli --input data/examples/cases.jsonl --output runs/predictions.jsonl
+```
+
 ## Structure
 
 - `src/voting_nli/`: application code, starting with the CLI.
