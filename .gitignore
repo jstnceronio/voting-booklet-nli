@@ -10,4 +10,4 @@ build/
 .DS_Store
 runs/*
 !runs/.gitkeep
-.idea/
+.idea/*

@@ -5,6 +5,6 @@ WORKDIR /app
 ENV UV_PYTHON_DOWNLOADS=never
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev
-COPY main.py ./
+COPY src/voting_cli/cli.py ./
 
 ENTRYPOINT ["uv", "run", "--no-sync", "python", "main.py"]
