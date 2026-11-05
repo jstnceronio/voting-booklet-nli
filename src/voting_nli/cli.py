@@ -11,6 +11,7 @@ def main():
     )
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     args = parser.parse_args()
 
     if args.input.resolve() == args.output.resolve():

@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
 
 WORKDIR /app
@@ -7,4 +7,4 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev
 COPY src/voting_cli/cli.py ./
 
-ENTRYPOINT ["uv", "run", "--no-sync", "python", "main.py"]
+ENTRYPOINT ["uv", "run", "--no-sync", "python", "cli.py"]
