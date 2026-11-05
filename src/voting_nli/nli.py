@@ -8,7 +8,7 @@ class Classifier:
     def __init__(self, model: Model):
         self.model = model
 
-    def classify(self, reference: str, claim: str) -> int:
+    def classify(self, reference: str, claim: str) -> tuple[int, dict]:
         if not reference.strip() or not claim.strip():
             raise ValueError("Reference and claim must be provided")
 
@@ -29,8 +29,9 @@ class Classifier:
             {data}
             """
 
-        response = (self.model.get_response(prompt) or "").strip()
+        response, metrics = self.model.get_response(prompt)
+        response = (response or "").strip()
         if response not in {"0", "1", "2"}:
-            raise ValueError("Invalid NLI response: {answer!r}")
+            raise ValueError(f"Invalid NLI response: {response!r}")
 
-        return int(response)
+        return int(response), metrics

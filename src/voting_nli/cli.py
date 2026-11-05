@@ -28,18 +28,14 @@ def start_classification(args, cases: list[dict]):
 
     with args.output.open("w", encoding="utf-8") as outputs:
         for case in cases:
-            label = nli.classify(case["reference"]["text"], case["claim"]["text"])
+            label, metrics = nli.classify(case["reference"]["text"], case["claim"]["text"])
 
             prediction = {
                 "id": case["id"],
                 "label": label,
                 "label_name": labels[label],
                 "evidence": [],
-                "metrics": {
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "inference_time_ms": 0,
-                },
+                "metrics": metrics,
             }
             outputs.write(json.dumps(prediction, ensure_ascii=False) + "\n")
 

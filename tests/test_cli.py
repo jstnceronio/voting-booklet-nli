@@ -63,13 +63,17 @@ class CLITest(unittest.TestCase):
                 "".join(json.dumps(row) + "\n" for row in cases), encoding="utf-8"
             )
             stdout = io.StringIO()
+            metrics = [
+                {"input_tokens": 120, "output_tokens": 8, "inference_time_ms": 125.5},
+                {"input_tokens": 130, "output_tokens": 9, "inference_time_ms": 150.25},
+            ]
             with (
                 patch.object(sys, "argv", ["voting-nli", "--input", str(input_path),
                                           "--output", str(output_path)]),
                 patch("voting_nli.cli.Model") as model,
                 redirect_stdout(stdout),
             ):
-                model.return_value.get_response.return_value = "0"
+                model.return_value.get_response.side_effect = [("0", row) for row in metrics]
                 main()
 
             self.assertEqual(stdout.getvalue(), "")
@@ -78,6 +82,7 @@ class CLITest(unittest.TestCase):
             ]
             self.assertEqual([row["id"] for row in predictions], [row["id"] for row in cases])
             self.assertEqual([row["label"] for row in predictions], [0, 0])
+            self.assertEqual([row["metrics"] for row in predictions], metrics)
             self.assertEqual(model.return_value.get_response.call_count, 2)
             prompt = model.return_value.get_response.call_args.args[0]
             data = json.loads(prompt.split("Input:", 1)[1].strip())
