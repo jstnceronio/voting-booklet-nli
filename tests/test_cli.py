@@ -1,4 +1,4 @@
-"""Smoke check for the installed command-line entry point."""
+"""CLI behavior with real input files and a mocked model."""
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
@@ -65,7 +65,7 @@ class CLITest(unittest.TestCase):
             self.assertIn("Batch mode requires --input and --output.", errors.getvalue())
             model.assert_not_called()
 
-    def test_booklet_input_rejected_before_overwriting_output(self):
+    def test_missing_booklet_rejected_before_overwriting_output(self):
         case = {
             "id": "booklet-example",
             "booklet": {"path": "booklets/example.pdf", "language": "de"},
@@ -94,11 +94,109 @@ class CLITest(unittest.TestCase):
                 main()
 
             self.assertEqual(raised.exception.code, 2)
-            self.assertIn("booklet-example", errors.getvalue())
-            self.assertIn("line 2", errors.getvalue())
-            self.assertIn("Booklet inputs are not supported", errors.getvalue())
+            self.assertIn("example.pdf", errors.getvalue())
             model.assert_not_called()
             self.assertEqual(output_path.read_text(encoding="utf-8"), "previous output\n")
+
+    def test_mixed_reference_and_booklet_cases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root / "booklets" / "example.pdf"
+            pdf.parent.mkdir()
+            with pymupdf.open() as document:
+                document.new_page().insert_text((72, 72), "First page.")
+                document.new_page()
+                document.new_page().insert_text((72, 72), "Third page.")
+                document.save(pdf)
+            reference_case = {
+                "id": "reference", "reference": {"text": "Reference text.", "language": "fr"},
+                "vote": "Example proposal", "claim": {"text": "Eine Behauptung.", "language": "de"},
+            }
+            booklet_case = {
+                "id": "booklet", "booklet": {"path": "booklets/example.pdf", "language": "de"},
+                "vote": "Example proposal", "claim": {"text": "Un'affermazione.", "language": "it"},
+            }
+            cases = [reference_case, booklet_case, {**reference_case, "id": "second-reference"},
+                     {**booklet_case, "id": "absolute-booklet", "booklet": {"path": str(pdf)}}]
+            input_path = root / "cases.jsonl"
+            output_path = root / "predictions.jsonl"
+            input_path.write_text("".join(json.dumps(row) + "\n" for row in cases), encoding="utf-8")
+            metrics = {"input_tokens": 120, "output_tokens": 1, "inference_time_ms": 10}
+            stdout = io.StringIO()
+            with (
+                patch.object(sys, "argv", ["voting-nli", "--input", str(input_path), "--output", str(output_path)]),
+                patch("voting_nli.cli.Model") as model,
+                redirect_stdout(stdout),
+            ):
+                model.return_value.get_response.side_effect = [(str(label), metrics) for label in (1, 0, 2, 0)]
+                main()
+
+            self.assertEqual(stdout.getvalue(), "")
+            predictions = [json.loads(line) for line in output_path.read_text().splitlines()]
+            self.assertEqual([row["id"] for row in predictions], [case["id"] for case in cases])
+            self.assertEqual([row["label"] for row in predictions], [1, 0, 2, 0])
+            self.assertEqual([row["metrics"] for row in predictions], [metrics] * 4)
+            self.assertEqual(model.call_count, 1)
+            prompts = [json.loads(call.args[0].split("Input:", 1)[1].strip())
+                       for call in model.return_value.get_response.call_args_list]
+            self.assertEqual(prompts[0]["reference"], "Reference text.")
+            self.assertEqual(prompts[1]["claim"], booklet_case["claim"]["text"])
+            self.assertEqual(prompts[1]["vote"], "Example proposal")
+            self.assertEqual([line for line in prompts[1]["reference"].splitlines() if line.strip()],
+                             ["[Page 1]", "First page.", "[Page 3]", "Third page."])
+            self.assertEqual(prompts[1], prompts[3])
+
+    def test_invalid_cases_preserve_existing_output(self):
+        valid = {"id": "example", "claim": {"text": "Claim."}, "reference": {"text": "Reference."}}
+        invalid_cases = [
+            {"id": "missing-source", "claim": valid["claim"]},
+            {**valid, "booklet": {"path": "example.pdf"}},
+            {"id": "missing-path", "claim": valid["claim"], "booklet": {}},
+            {**valid, "reference": {"text": " "}},
+            {**valid, "id": " "},
+            {**valid, "claim": None},
+            {**valid, "vote": 42},
+            [],
+        ]
+        for case in invalid_cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                inputs = root / "cases.jsonl"
+                outputs = root / "predictions.jsonl"
+                inputs.write_text(json.dumps(case) + "\n", encoding="utf-8")
+                outputs.write_text("previous output\n", encoding="utf-8")
+                with (
+                    patch.object(sys, "argv", ["voting-nli", "--input", str(inputs), "--output", str(outputs)]),
+                    patch("voting_nli.cli.Model") as model,
+                    redirect_stderr(io.StringIO()),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    main()
+                self.assertEqual(raised.exception.code, 2)
+                model.assert_not_called()
+                self.assertEqual(outputs.read_text(), "previous output\n")
+
+    def test_output_cannot_overwrite_booklet(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root / "booklet.pdf"
+            with pymupdf.open() as document:
+                document.new_page().insert_text((72, 72), "Keep this source.")
+                document.save(pdf)
+            original = pdf.read_bytes()
+            inputs = root / "cases.jsonl"
+            inputs.write_text(json.dumps({"id": "booklet", "booklet": {"path": pdf.name},
+                                          "claim": {"text": "Claim."}}) + "\n", encoding="utf-8")
+            with (
+                patch.object(sys, "argv", ["voting-nli", "--input", str(inputs), "--output", str(pdf)]),
+                patch("voting_nli.cli.Model") as model,
+                redirect_stderr(io.StringIO()) as errors,
+                self.assertRaises(SystemExit),
+            ):
+                main()
+            self.assertIn("must not overwrite", errors.getvalue())
+            model.assert_not_called()
+            self.assertEqual(pdf.read_bytes(), original)
 
     def test_nested_reference_and_claim(self):
         case = {

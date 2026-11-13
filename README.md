@@ -14,21 +14,45 @@ uv run --no-editable voting-nli --help
 uv run --no-editable voting-nli --version
 ```
 
-This scaffold provides the package and CLI entry point. NLI, model calls,
-PDF processing, dialogue generation and audio are not implemented yet.
-No runtime dependencies or API credentials are needed for the scaffold.
+The CLI supports reference NLI and full-document PDF NLI using Apertus.
+Evidence extraction, dialogue generation and audio are not implemented yet.
 Use `--no-editable` to avoid editable-import issues in restricted environments;
-uv rebuilds the installed package when the source changes.
+after editing Python source, refresh the installed package with
+`uv sync --no-editable --reinstall-package voting-nli`.
 
-When adding Apertus access, copy `.env.example` to `.env` and set your
-`CSCS_API_KEY`. Environment-file loading will be added with the model client.
+Configure `API_KEY`, `BASE_URL` and `MODEL` in your environment or `.env`.
+The model client currently uses `swiss-ai/Apertus-v1.5-70B-thinking`.
 
 ## Reference NLI
 
 Run a reference-only example with:
 
 ```sh
-uv run --no-editable voting-nli --input data/examples/cases.jsonl --output runs/predictions.jsonl
+uv run --no-editable voting-nli --input data/examples/reference_cases.jsonl --output runs/predictions.jsonl
+```
+
+## Booklet NLI
+
+Run the included German 2026 booklet example with:
+
+```sh
+uv run --no-editable voting-nli --input data/examples/booklet_cases.jsonl --output runs/booklet-predictions.jsonl
+```
+
+An input JSONL file can mix reference and booklet cases. Each case must contain
+exactly one of `reference` or `booklet`, an `id` and a `claim.text`. The optional
+`vote` name is passed to the classifier as proposal context. Booklet paths resolve
+relative to the input JSONL file; absolute paths also work. For example,
+`booklets/example.pdf` in `/data/cases.jsonl` resolves to `/data/booklets/example.pdf`.
+Predictions preserve case IDs, labels and per-case metrics. Booklet pages retain
+their 1-based PDF page numbers, including gaps for blank pages. Evidence is
+currently returned as an empty list, so this baseline does not yet satisfy the
+benchmark's Task A evidence requirements.
+
+The direct PDF command is also available:
+
+```sh
+uv run --no-editable voting-nli check --pdf data/booklets/2026_06_14_de.pdf --claim "Die Volksabstimmung findet am 14. Juni 2026 statt."
 ```
 
 ## Structure
@@ -39,6 +63,21 @@ uv run --no-editable voting-nli --input data/examples/cases.jsonl --output runs/
 - `data/benchmarks/`: official evaluation inputs (ignored by Git).
 - `runs/`: generated predictions, evidence logs, scripts and audio (ignored by Git).
 - `report/`: report, architecture diagram and evaluation summaries.
+
+## Reading the code
+
+The batch flow is `main → load_cases → classify_batch → Classifier.classify`.
+
+- `cli.py` handles command arguments and prediction output.
+- `cases.py` validates JSONL input and loads reference text or page-marked PDF
+  text into `Case` records with named fields.
+- `nli.py` builds the classification prompt and validates the returned label.
+- `model.py` calls Apertus and records token usage and timing.
+- `config.py` loads environment settings.
+
+All input cases and PDFs are loaded before opening the output file, so invalid
+inputs cannot truncate existing predictions. Booklet paths are also checked to
+prevent overwriting a source PDF.
 
 ## Check
 

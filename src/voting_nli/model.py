@@ -7,11 +7,11 @@ from voting_nli.config import settings
 
 class Model:
     def __init__(self):
-        self.llm = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
+        self.client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
 
-    def get_response(self, message) -> tuple[str | None, dict]:
+    def get_response(self, message: str) -> tuple[str | None, dict]:
         started = perf_counter()
-        response = self.llm.chat.completions.create(
+        response = self.client.chat.completions.create(
             model="swiss-ai/Apertus-v1.5-70B-thinking",
             messages=[
                 {"role": "user", "content": message},
