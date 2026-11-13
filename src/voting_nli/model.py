@@ -12,7 +12,7 @@ class Model:
     def get_response(self, message: str) -> tuple[str | None, dict]:
         started = perf_counter()
         response = self.client.chat.completions.create(
-            model="swiss-ai/Apertus-v1.5-70B-thinking",
+            model=settings.model,
             messages=[
                 {"role": "user", "content": message},
             ],
