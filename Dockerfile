@@ -3,8 +3,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
 
 WORKDIR /app
 ENV UV_PYTHON_DOWNLOADS=never
-COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev
-COPY src/voting_cli/cli.py ./
+COPY pyproject.toml uv.lock README.md ./
+COPY src ./src
+RUN uv sync --locked --no-dev --no-editable
 
-ENTRYPOINT ["uv", "run", "--no-sync", "python", "cli.py"]
+ENTRYPOINT ["uv", "run", "--no-sync", "voting-nli"]
