@@ -1,0 +1,2 @@
+{"id": "v1.0-row-1158-A", "label": 2, "label_name": "contradiction", "evidence": [], "metrics": {"input_tokens": 0, "output_tokens": 0, "inference_time_ms": 0}}
+{"id": "v1.0-row-414-B", "label": 1, "label_name": "neutral", "evidence": [], "metrics": {"input_tokens": 0, "output_tokens": 0, "inference_time_ms": 0}}

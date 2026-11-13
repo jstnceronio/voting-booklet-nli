@@ -1,0 +1,10 @@
+image: python:3.11-slim
+
+stages:
+  - test
+
+test:
+  stage: test
+  script:
+    - python -m pip install .
+    - API_KEY=test BASE_URL=https://example.invalid MODEL=test python -m unittest discover -s tests -v
