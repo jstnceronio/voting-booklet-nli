@@ -24,5 +24,9 @@ class Model:
             "output_tokens": usage.completion_tokens if usage is not None else None,
             "inference_time_ms": round(elapsed_ms, 3),
         }
-        return response.choices[0].message.content, metrics
+        content = response.choices[0].message.content
+        # Apertus can include reasoning before its final-answer marker.
+        if content and "<|inner_suffix|>" in content:
+            content = content.rsplit("<|inner_suffix|>", 1)[1].strip()
+        return content, metrics
 

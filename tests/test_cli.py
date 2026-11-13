@@ -10,10 +10,61 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pymupdf
+
 from voting_nli.cli import main
 
 
 class CLITest(unittest.TestCase):
+    def test_pdf_check_without_batch_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / "booklet.pdf"
+            with pymupdf.open() as document:
+                document.new_page().insert_text((72, 72), "First page.")
+                document.new_page()
+                document.new_page().insert_text((72, 72), "Third page.")
+                document.save(pdf)
+
+            stdout = io.StringIO()
+            metrics = {"input_tokens": 120, "output_tokens": 1, "inference_time_ms": 10}
+            with (
+                patch.object(sys, "argv", ["voting-nli", "check", "--pdf", str(pdf),
+                                          "--claim", "Eine Behauptung."]),
+                patch("voting_nli.cli.Model") as model,
+                redirect_stdout(stdout),
+            ):
+                model.return_value.get_response.return_value = ("0", metrics)
+                main()
+
+            self.assertEqual(json.loads(stdout.getvalue()), {
+                "label": 0,
+                "label_name": "entailment",
+                "evidence": [],
+                "metrics": metrics,
+            })
+            prompt = model.return_value.get_response.call_args.args[0]
+            data = json.loads(prompt.split("Input:", 1)[1].strip())
+            self.assertEqual(data["claim"], "Eine Behauptung.")
+            self.assertEqual(
+                [line for line in data["reference"].splitlines() if line.strip()],
+                ["[Page 1]", "First page.", "[Page 3]", "Third page."],
+            )
+
+    def test_batch_requires_both_paths(self):
+        for arguments in ([], ["--input", "cases.jsonl"], ["--output", "predictions.jsonl"]):
+            with (
+                self.subTest(arguments=arguments),
+                patch.object(sys, "argv", ["voting-nli", *arguments]),
+                patch("voting_nli.cli.Model") as model,
+                redirect_stderr(io.StringIO()) as errors,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                main()
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn("Batch mode requires --input and --output.", errors.getvalue())
+            model.assert_not_called()
+
     def test_booklet_input_rejected_before_overwriting_output(self):
         case = {
             "id": "booklet-example",
