@@ -5,7 +5,6 @@ description = "Multilingual voting booklet fact-checking and verified dialogue g
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "args>=0.1.0",
     "openai>=3.45.0",
     "pydantic-settings>=2.16.2",
     "pymupdf>=2.1",
