@@ -26,23 +26,29 @@ class CLITest(unittest.TestCase):
                 document.new_page()
                 document.new_page().insert_text((72, 72), "Third page.")
                 document.save(pdf)
+                third_page_text = document[2].get_text(sort=True)
 
             stdout = io.StringIO()
             metrics = {"input_tokens": 120, "output_tokens": 1, "inference_time_ms": 10}
             with (
                 patch("voting_nli.cli.Model") as model,
                 redirect_stdout(stdout),
+                redirect_stderr(io.StringIO()) as progress,
             ):
-                model.return_value.get_response.return_value = ("0", metrics)
+                model.return_value.get_response.side_effect = [
+                    ("0", metrics), ('```json\n["p3:0"]\n```', metrics),
+                ]
                 main(["check", "--pdf", str(pdf), "--claim", "Eine Behauptung."])
 
+            self.assertIn("Classifying claim...", progress.getvalue())
+            self.assertIn("Selecting evidence (attempt 1/2)...", progress.getvalue())
             self.assertEqual(json.loads(stdout.getvalue()), {
                 "label": 0,
                 "label_name": "entailment",
-                "evidence": [],
-                "metrics": metrics,
+                "evidence": [{"page": 3, "text": third_page_text}],
+                "metrics": {key: value * 2 for key, value in metrics.items()},
             })
-            prompt = model.return_value.get_response.call_args.args[0]
+            prompt = model.return_value.get_response.call_args_list[0].args[0]
             data = json.loads(prompt.split("Input:", 1)[1].strip())
             self.assertEqual(data["claim"], "Eine Behauptung.")
             self.assertEqual(
@@ -106,6 +112,8 @@ class CLITest(unittest.TestCase):
                 document.new_page()
                 document.new_page().insert_text((72, 72), "Third page.")
                 document.save(pdf)
+                first_page_text = document[0].get_text(sort=True)
+                third_page_text = document[2].get_text(sort=True)
             reference_case = {
                 "id": "reference", "reference": {"text": "Reference text.", "language": "fr"},
                 "vote": "Example proposal", "claim": {"text": "Eine Behauptung.", "language": "de"},
@@ -126,7 +134,10 @@ class CLITest(unittest.TestCase):
                 redirect_stdout(stdout),
                 redirect_stderr(io.StringIO()) as messages,
             ):
-                model.return_value.get_response.side_effect = [(str(label), metrics) for label in (1, 0, 2, 0)]
+                model.return_value.get_response.side_effect = [
+                    ("1", metrics), ("0", metrics), ('["p1:0"]', metrics),
+                    ("2", metrics), ("0", metrics), ('["p3:0"]', metrics),
+                ]
                 main(["batch", "--input", str(input_path), "--output", str(output_path)])
 
             self.assertEqual(stdout.getvalue(), "")
@@ -134,7 +145,12 @@ class CLITest(unittest.TestCase):
             predictions = [json.loads(line) for line in output_path.read_text().splitlines()]
             self.assertEqual([row["id"] for row in predictions], [case["id"] for case in cases])
             self.assertEqual([row["label"] for row in predictions], [1, 0, 2, 0])
-            self.assertEqual([row["metrics"] for row in predictions], [metrics] * 4)
+            doubled = {key: value * 2 for key, value in metrics.items()}
+            self.assertEqual([row["metrics"] for row in predictions], [metrics, doubled, metrics, doubled])
+            self.assertEqual([row["evidence"] for row in predictions], [
+                [], [{"page": 1, "text": first_page_text}],
+                [], [{"page": 3, "text": third_page_text}],
+            ])
             self.assertEqual(model.call_count, 1)
             prompts = [json.loads(call.args[0].split("Input:", 1)[1].strip())
                        for call in model.return_value.get_response.call_args_list]
@@ -143,7 +159,8 @@ class CLITest(unittest.TestCase):
             self.assertEqual(prompts[1]["vote"], "Example proposal")
             self.assertEqual([line for line in prompts[1]["reference"].splitlines() if line.strip()],
                              ["[Page 1]", "First page.", "[Page 3]", "Third page."])
-            self.assertEqual(prompts[1], prompts[3])
+            self.assertEqual(prompts[1], prompts[4])
+            self.assertEqual(prompts[2]["vote"], "Example proposal")
 
     def test_invalid_cases_preserve_existing_output(self):
         valid = {"id": "example", "claim": {"text": "Claim."}, "reference": {"text": "Reference."}}
@@ -351,6 +368,39 @@ class CLITest(unittest.TestCase):
                 main(["check", "--pdf", "booklet.pdf", "--claim", "Claim."])
             self.assertEqual(raised.exception.code, 1)
             self.assertIn(str(failure), errors.getvalue())
+            self.assertEqual(stdout.getvalue(), "")
+
+    def test_evidence_failure_preserves_batch_output_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root / "booklet.pdf"
+            with pymupdf.open() as document:
+                document.new_page().insert_text((72, 72), "The vote is in June 2026.")
+                document.save(pdf)
+            inputs = root / "cases.jsonl"
+            outputs = root / "predictions.jsonl"
+            cases = [
+                {"id": "reference", "reference": {"text": "Reference."}, "claim": {"text": "Claim."}},
+                {"id": "booklet", "booklet": {"path": pdf.name}, "claim": {"text": "Vote in 2027."}},
+            ]
+            inputs.write_text("".join(json.dumps(case) + "\n" for case in cases), encoding="utf-8")
+            outputs.write_text("previous output\n", encoding="utf-8")
+            metrics = {"input_tokens": 100, "output_tokens": 1, "inference_time_ms": 10}
+            with (
+                patch("voting_nli.cli.Model") as model,
+                redirect_stderr(io.StringIO()) as errors,
+                redirect_stdout(io.StringIO()) as stdout,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                model.return_value.get_response.side_effect = [
+                    ("0", metrics), ("2", metrics), ("[]", metrics), ("[]", metrics),
+                ]
+                main(["batch", "-i", str(inputs), "-o", str(outputs)])
+            self.assertEqual(raised.exception.code, 1)
+            self.assertIn("evidence selection after two attempts", errors.getvalue())
+            self.assertNotIn("Wrote", errors.getvalue())
+            self.assertEqual(outputs.read_text(), "previous output\n")
+            self.assertEqual(set(root.iterdir()), {inputs, outputs, pdf})
             self.assertEqual(stdout.getvalue(), "")
 
     def test_missing_configuration_prints_actionable_error_without_values(self):

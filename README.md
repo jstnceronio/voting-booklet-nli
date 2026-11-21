@@ -19,8 +19,8 @@ command options. Help and version work without API credentials.
 These examples use a non-editable install because editable imports can fail in
 restricted environments. See Development below for running source edits directly.
 
-The CLI supports reference NLI and full-document PDF NLI using Apertus.
-Evidence extraction, dialogue generation and audio are not implemented yet.
+The CLI supports reference NLI and full-document PDF NLI with source-grounded
+evidence using Apertus. Dialogue generation and audio are not implemented yet.
 
 For classification, copy `.env.example` to `.env` and configure `API_KEY`,
 `BASE_URL` and `MODEL`, or set those environment variables. For Apertus, use
@@ -68,9 +68,31 @@ exactly one of `reference` or `booklet`, an `id` and a `claim.text`. The optiona
 relative to the input JSONL file; absolute paths also work. For example,
 `booklets/example.pdf` in `/data/cases.jsonl` resolves to `/data/booklets/example.pdf`.
 Predictions preserve case IDs, labels and per-case metrics. Booklet pages retain
-their 1-based PDF page numbers, including gaps for blank pages. Evidence is
-currently returned as an empty list, so this baseline does not yet satisfy the
-benchmark's Task A evidence requirements.
+their 1-based PDF page numbers, including gaps for blank pages.
+
+For booklet entailment (`0`) and contradiction (`2`), a second Apertus call selects
+1–5 source passages. Python resolves the selected passage IDs to verbatim text
+and 1-based PDF page numbers; the model does not generate quotations. Passages
+stay within a page and contain at most 5,000 characters. Neutral and reference-only
+predictions keep `evidence: []`. An evidence item has this shape:
+
+```json
+{"page": 3, "text": "Verbatim text extracted from this PDF page."}
+```
+
+JSON selections may be plain or wrapped in a Markdown code block; ID strings
+and objects containing only an `id` are accepted. Invalid or empty selections
+get one repair attempt with the rejected response and validation
+error. A second failure reports the validation error and a preview of the last
+response.
+A failure discards the temporary batch output and preserves existing predictions.
+Per-case metrics include classification, evidence selection and any repair call;
+unavailable token counts remain `null`. The additional calls increase cost and
+latency. Source membership guarantees quotation provenance, but relevance and
+coverage still require evaluation. Textless PDFs need OCR before use.
+
+Model calls use a 180-second timeout with automatic API retries disabled.
+Progress messages go to standard error; final JSON remains on standard output.
 
 The direct PDF command is also available:
 
@@ -89,14 +111,16 @@ uv run --no-editable voting-nli check --pdf data/booklets/2026_06_14_de.pdf --cl
 
 ## Reading the code
 
-The batch flow is `main → load_cases → classify_batch → Classifier.classify`.
+The batch flow is `main → load_cases → classify_batch → Classifier.classify_with_evidence`.
 
 - `cli.py` handles command arguments, command dispatch and prediction output.
   `build_parser()` defines the interface; `main(argv)` also accepts argument lists
   directly for tests and embedded use.
 - `cases.py` validates JSONL input and loads reference text or page-marked PDF
-  text into `Case` records with named fields.
-- `nli.py` builds the classification prompt and validates the returned label.
+  text into `Case` records, retaining booklet passages for evidence selection.
+  `read_booklet` returns a `Booklet` with `reference` and `passages` fields.
+- `nli.py` classifies claims, selects and validates evidence IDs, and resolves
+  quotations from stored passages. `Classifier.classify` remains label-only.
 - `model.py` calls Apertus and records token usage and timing.
 - `config.py` defines environment settings, loaded by `Model` when needed.
 
