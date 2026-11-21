@@ -24,17 +24,18 @@ def classify_batch(cases: list[Case], output_path: Path) -> None:
         temporary_path = Path(directory) / "predictions.jsonl"
         with temporary_path.open("w", encoding="utf-8") as outputs:
             for case in cases:
-                label, metrics = classifier.classify(
+                label, evidence, metrics = classifier.classify_with_evidence(
                     reference=case.reference,
                     claim=case.claim,
                     vote=case.vote,
+                    passages=case.passages,
                 )
 
                 prediction = {
                     "id": case.case_id,
                     "label": label,
                     "label_name": LABEL_NAMES[label],
-                    "evidence": [],
+                    "evidence": evidence,
                     "metrics": metrics,
                 }
                 outputs.write(json.dumps(prediction, ensure_ascii=False) + "\n")
@@ -42,14 +43,16 @@ def classify_batch(cases: list[Case], output_path: Path) -> None:
 
 
 def check_booklet(pdf_path: Path, claim: str) -> dict:
-    reference = read_booklet(pdf_path)
+    booklet = read_booklet(pdf_path)
     classifier = Classifier(Model())
-    label, metrics = classifier.classify(reference, claim)
+    label, evidence, metrics = classifier.classify_with_evidence(
+        booklet.reference, claim, passages=booklet.passages,
+    )
 
     return {
         "label": label,
         "label_name": LABEL_NAMES[label],
-        "evidence": [],
+        "evidence": evidence,
         "metrics": metrics,
     }
 

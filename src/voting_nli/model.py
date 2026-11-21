@@ -1,6 +1,6 @@
 from time import perf_counter
 
-from openai import OpenAI
+from openai import APITimeoutError, OpenAI
 
 from voting_nli.config import Settings
 
@@ -8,16 +8,24 @@ from voting_nli.config import Settings
 class Model:
     def __init__(self):
         self.settings = Settings()
-        self.client = OpenAI(api_key=self.settings.api_key, base_url=self.settings.base_url)
+        self.client = OpenAI(
+            api_key=self.settings.api_key, base_url=self.settings.base_url,
+            timeout=180.0, max_retries=0,
+        )
 
     def get_response(self, message: str) -> tuple[str | None, dict]:
         started = perf_counter()
-        response = self.client.chat.completions.create(
-            model=self.settings.model,
-            messages=[
-                {"role": "user", "content": message},
-            ],
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.settings.model,
+                messages=[
+                    {"role": "user", "content": message},
+                ],
+            )
+        except APITimeoutError as error:
+            raise TimeoutError(
+                "Model API timed out (timeout: 180 seconds); request was not retried."
+            ) from error
         elapsed_ms = (perf_counter() - started) * 1000
         usage = response.usage
         metrics = {
