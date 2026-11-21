@@ -9,26 +9,49 @@ Requires Python 3.11+ and uv. `.python-version` selects Python 3.11 to match
 the course tooling. Run from this directory:
 
 ```sh
-uv sync --no-editable
-uv run --no-editable voting-nli --help
+uv sync --locked --no-editable
+uv run --no-editable voting-nli
 uv run --no-editable voting-nli --version
 ```
 
+Running without arguments shows help. Use `batch --help` or `check --help` for
+command options. Help and version work without API credentials.
+These examples use a non-editable install because editable imports can fail in
+restricted environments. See Development below for running source edits directly.
+
 The CLI supports reference NLI and full-document PDF NLI using Apertus.
 Evidence extraction, dialogue generation and audio are not implemented yet.
-Use `--no-editable` to avoid editable-import issues in restricted environments;
-after editing Python source, refresh the installed package with
-`uv sync --no-editable --reinstall-package voting-nli`.
 
-Configure `API_KEY`, `BASE_URL` and `MODEL` in your environment or `.env`.
-The model client currently uses `swiss-ai/Apertus-v1.5-70B-thinking`.
+For classification, copy `.env.example` to `.env` and configure `API_KEY`,
+`BASE_URL` and `MODEL`, or set those environment variables. For Apertus, use
+`swiss-ai/Apertus-v1.5-70B-thinking` as the model. Configuration is loaded when a
+model client is created, so importing the package does not require credentials.
+
+## Commands
+
+| Command | Input | Output |
+| --- | --- | --- |
+| `voting-nli batch -i cases.jsonl -o predictions.jsonl` | Reference or booklet cases in JSONL | Predictions in a JSONL file |
+| `voting-nli check --pdf booklet.pdf --claim "Claim text"` | One PDF and one claim | A JSON prediction on stdout |
+
+Batch progress and completion messages go to stderr, keeping stdout available
+for machine-readable output. Output directories are created automatically.
+Existing predictions are replaced only after the whole batch succeeds; failures
+and Ctrl+C preserve them. Input errors include the JSONL filename and line number.
+
+Exit codes are `0` for success or help, `1` for input, configuration, model or
+file errors, `2` for invalid command arguments, and `130` for Ctrl+C during a command.
+
+**Syntax change:** batch processing now requires the `batch` command. Update
+existing scripts from `voting-nli --input ... --output ...` to
+`voting-nli batch --input ... --output ...`.
 
 ## Reference NLI
 
 Run a reference-only example with:
 
 ```sh
-uv run --no-editable voting-nli --input data/examples/reference_cases.jsonl --output runs/predictions.jsonl
+uv run --no-editable voting-nli batch --input data/examples/reference_cases.jsonl --output runs/predictions.jsonl
 ```
 
 ## Booklet NLI
@@ -36,7 +59,7 @@ uv run --no-editable voting-nli --input data/examples/reference_cases.jsonl --ou
 Run the included German 2026 booklet example with:
 
 ```sh
-uv run --no-editable voting-nli --input data/examples/booklet_cases.jsonl --output runs/booklet-predictions.jsonl
+uv run --no-editable voting-nli batch --input data/examples/booklet_cases.jsonl --output runs/booklet-predictions.jsonl
 ```
 
 An input JSONL file can mix reference and booklet cases. Each case must contain
@@ -68,22 +91,41 @@ uv run --no-editable voting-nli check --pdf data/booklets/2026_06_14_de.pdf --cl
 
 The batch flow is `main → load_cases → classify_batch → Classifier.classify`.
 
-- `cli.py` handles command arguments and prediction output.
+- `cli.py` handles command arguments, command dispatch and prediction output.
+  `build_parser()` defines the interface; `main(argv)` also accepts argument lists
+  directly for tests and embedded use.
 - `cases.py` validates JSONL input and loads reference text or page-marked PDF
   text into `Case` records with named fields.
 - `nli.py` builds the classification prompt and validates the returned label.
 - `model.py` calls Apertus and records token usage and timing.
-- `config.py` loads environment settings.
+- `config.py` defines environment settings, loaded by `Model` when needed.
 
 All input cases and PDFs are loaded before opening the output file, so invalid
 inputs cannot truncate existing predictions. Booklet paths are also checked to
 prevent overwriting a source PDF.
 
-## Check
+## Development
+
+The console command and `python -m voting_nli` run the same CLI. To pick up source
+changes immediately without reinstalling, run from the project directory with
+`PYTHONPATH=src`:
 
 ```sh
-uv run --no-editable python -m unittest discover -s tests -v
+PYTHONPATH=src uv run --no-editable python -m voting_nli --help
 ```
+
+Run the tests with placeholder configuration; model calls are mocked, so no API
+access or real credentials are needed:
+
+```sh
+API_KEY=test BASE_URL=https://example.invalid MODEL=test PYTHONPATH=src \
+  uv run --no-editable python -m unittest discover -s tests -v
+```
+
+To refresh the installed console command after source changes, run
+`uv sync --no-editable --reinstall-package voting-nli`. In environments supporting
+editable imports, `uv sync` followed by `uv run voting-nli ...` also picks up edits
+automatically.
 
 ## Implementation order
 

@@ -38,28 +38,33 @@ def load_cases(input_path: Path, output_path: Path) -> list[Case]:
     """Validate and load every source before the output file is opened."""
     cases = []
     with input_path.open(encoding="utf-8") as inputs:
-        for line in inputs:
-            data = json.loads(line)
-            case_id = required_text(data, "id")
-            claim = required_text(data.get("claim"), "text")
-            vote = required_text(data, "vote") if "vote" in data else None
+        for line_number, line in enumerate(inputs, start=1):
+            try:
+                data = json.loads(line)
+                case_id = required_text(data, "id")
+                claim = required_text(data.get("claim"), "text")
+                vote = required_text(data, "vote") if "vote" in data else None
 
-            source_fields = data.keys() & {"reference", "booklet"}
-            if len(source_fields) != 1:
-                raise ValueError("Provide exactly one of 'reference' or 'booklet'.")
+                source_fields = data.keys() & {"reference", "booklet"}
+                if len(source_fields) != 1:
+                    raise ValueError("Provide exactly one of 'reference' or 'booklet'.")
 
-            if "booklet" in data:
-                pdf_path = input_path.parent / required_text(data["booklet"], "path")
-                if pdf_path.resolve() == output_path.resolve():
-                    raise ValueError("Output must not overwrite a source booklet.")
-                reference = read_booklet(pdf_path)
-            else:
-                reference = required_text(data["reference"], "text")
+                if "booklet" in data:
+                    pdf_path = input_path.parent / required_text(data["booklet"], "path")
+                    if pdf_path.resolve() == output_path.resolve():
+                        raise ValueError("Output must not overwrite a source booklet.")
+                    reference = read_booklet(pdf_path)
+                else:
+                    reference = required_text(data["reference"], "text")
 
-            cases.append(Case(
-                case_id=case_id,
-                reference=reference,
-                claim=claim,
-                vote=vote,
-            ))
+                cases.append(Case(
+                    case_id=case_id,
+                    reference=reference,
+                    claim=claim,
+                    vote=vote,
+                ))
+            except (ValueError, OSError, RuntimeError) as error:
+                raise ValueError(f"{input_path}:{line_number}: {error}") from error
+    if not cases:
+        raise ValueError(f"{input_path}: Input file contains no cases.")
     return cases

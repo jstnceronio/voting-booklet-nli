@@ -2,17 +2,18 @@ from time import perf_counter
 
 from openai import OpenAI
 
-from voting_nli.config import settings
+from voting_nli.config import Settings
 
 
 class Model:
     def __init__(self):
-        self.client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
+        self.settings = Settings()
+        self.client = OpenAI(api_key=self.settings.api_key, base_url=self.settings.base_url)
 
     def get_response(self, message: str) -> tuple[str | None, dict]:
         started = perf_counter()
         response = self.client.chat.completions.create(
-            model=settings.model,
+            model=self.settings.model,
             messages=[
                 {"role": "user", "content": message},
             ],

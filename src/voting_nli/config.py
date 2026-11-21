@@ -8,5 +8,3 @@ class Settings(BaseSettings):
     api_key: str
     base_url: str
     model: str
-
-settings = Settings()
